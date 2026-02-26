@@ -1,18 +1,26 @@
 // ── TakosuList Service Worker ──────────────────────────────────────────────
-const CACHE_NAME = "takosulist-v1";
+const CACHE_VERSION = "v2";
+const CACHE_NAME = `takosulist-${CACHE_VERSION}`;
 
-// Solo cacheamos el shell (index.html). Las rutas SPA no son archivos reales.
+// Shell mínimo para SPA (Vite + React). "/" suele servir index.html.
 const PRE_CACHE = ["/"];
 
-// ── Instalación: pre-cachear shell ──────────────────────────────────────────
+// ── Instalación: pre-cachear shell ─────────────────────────────────────────
 self.addEventListener("install", (event) => {
-  self.skipWaiting(); // Activar inmediatamente
+  // Activar inmediatamente (controlado también por SKIP_WAITING)
+  self.skipWaiting();
+
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRE_CACHE).catch(() => {}))
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRE_CACHE))
+      .catch(() => {
+        // No romper instalación si algo falla
+      })
   );
 });
 
-// ── Activación: limpiar cachés antiguas ─────────────────────────────────────
+// ── Activación: reclamar clientes y limpiar cachés antiguas ─────────────────
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
@@ -24,108 +32,148 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// ── SKIP_WAITING desde pushClient ───────────────────────────────────────────
+// ── SKIP_WAITING desde pushClient ──────────────────────────────────────────
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
-// ── Estrategia de caché ─────────────────────────────────────────────────────
+// Helpers ───────────────────────────────────────────────────────────────────
+async function putInCache(request, response) {
+  // Solo cacheamos respuestas válidas
+  // Nota: response.type puede ser "opaque" para cross-origin sin CORS (no siempre conviene cachearlo)
+  if (!response || !response.ok) return;
+
+  const cache = await caches.open(CACHE_NAME);
+  await cache.put(request, response);
+}
+
+async function cacheMatch(request) {
+  const cache = await caches.open(CACHE_NAME);
+  return await cache.match(request);
+}
+
+// ── Fetch: estrategias de caché ────────────────────────────────────────────
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // 1. Estrategia para API y otros orígenes (solo cacheamos GET)
+  // Solo manejamos http(s)
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
+
+  // 1) API: network-first (solo GET) con fallback a caché
   if (url.pathname.startsWith("/api/")) {
-    // Si no es un GET, no intentamos cachear (POST, PUT, DELETE no se pueden cachear)
     if (request.method !== "GET") {
+      // POST/PUT/DELETE no se cachean
       event.respondWith(fetch(request));
       return;
     }
 
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Si la respuesta es exitosa, guardamos una copia en el caché
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => {
-          // Si falla la red (offline), buscamos en el caché
-          return caches.match(request).then((cached) => {
-            if (cached) return cached;
-            // Si no está ni en caché, devolver error JSON
-            return new Response(
-              JSON.stringify({ error: "Sin conexión y sin datos en caché." }),
-              { headers: { "Content-Type": "application/json" }, status: 503 }
-            );
-          });
-        })
+      (async () => {
+        try {
+          const res = await fetch(request);
+          // Guardar copia si OK
+          await putInCache(request, res.clone());
+          return res;
+        } catch (err) {
+          const cached = await cacheMatch(request);
+          if (cached) return cached;
+
+          return new Response(
+            JSON.stringify({ error: "Sin conexión y sin datos en caché." }),
+            { status: 503, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      })()
     );
     return;
   }
 
-  // 2. Estrategia para el HTML (Network-first para asegurar frescura)
+  // 2) Navegación (HTML): network-first + SPA fallback al shell ("/")
+  // request.mode === "navigate" cubre clics, refresh, escritura de URL, etc.
   if (request.mode === "navigate") {
-    event.respondWith((async () => {
-      try {
-        const res = await fetch(request);
+    event.respondWith(
+      (async () => {
+        try {
+          const res = await fetch(request);
 
-        // Si Vercel responde 404 para /app/*, devolvemos el shell (/)
-        if (!res.ok) {
-          const shell = await fetch("/");
-          return shell;
+          // Si el servidor devuelve 404/500 para una ruta SPA, devolvemos el shell
+          if (!res || !res.ok) {
+            const shell = await cacheMatch("/");
+            return shell || (await fetch("/"));
+          }
+
+          // Cachear la navegación exitosa (opcional)
+          await putInCache(request, res.clone());
+          return res;
+        } catch (err) {
+          // Offline: devolver shell desde caché
+          const shell = await cacheMatch("/");
+          return (
+            shell ||
+            new Response("Offline", {
+              status: 200,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            })
+          );
         }
-
-        // Solo cachear si es OK
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then((c) => c.put(request, clone));
-        return res;
-      } catch {
-        // Offline: devolver shell desde cache
-        return (await caches.match("/")) || new Response("Offline", { status: 200, headers: { "Content-Type": "text/html" } });
-      }
-    })());
+      })()
+    );
     return;
   }
 
-  // 3. Estrategia para Assets (JS, CSS, Imágenes, Fuentes) — Cache-First
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then((c) => c.put(request, clone));
-          }
+  // 3) Assets estáticos (JS/CSS/img/fonts): cache-first
+  // Para evitar cachear requests no-GET, dejamos pasar.
+  if (request.method === "GET") {
+    event.respondWith(
+      (async () => {
+        const cached = await cacheMatch(request);
+        if (cached) return cached;
+
+        try {
+          const res = await fetch(request);
+          await putInCache(request, res.clone());
           return res;
-        })
-        .catch(() => {
-          // Si es una imagen y falla, podemos devolver un placeholder
+        } catch (err) {
+          // Placeholder si es imagen
           if (request.destination === "image") {
             return new Response(
-              `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="#0a1020" width="100" height="100"/><text fill="#06b6d4" x="50" y="55" font-size="40" text-anchor="middle">🐙</text></svg>`,
+              `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                 <rect width="100" height="100" fill="#0a1020"/>
+                 <text x="50" y="58" font-size="40" text-anchor="middle" fill="#06b6d4">🐙</text>
+               </svg>`,
               { headers: { "Content-Type": "image/svg+xml" } }
             );
           }
-        });
-    })
-  );
+          // Si no hay red y no hay caché, dejar que falle
+          return new Response("Offline", { status: 503 });
+        }
+      })()
+    );
+    return;
+  }
+
+  // Para cualquier otro caso, dejamos al navegador manejarlo
 });
 
-// ── Push notifications ───────────────────────────────────────────────────────
+// ── Push notifications ─────────────────────────────────────────────────────
 self.addEventListener("push", (event) => {
   if (!event.data) return;
+
   let data = {};
-  try { data = event.data.json(); } catch { data = { title: "TakosuList", body: event.data.text() }; }
+  try {
+    data = event.data.json();
+  } catch {
+    data = { title: "TakosuList", body: event.data.text() };
+  }
 
   event.waitUntil(
     self.registration.showNotification(data.title || "TakosuList", {
       body: data.body || "",
       icon: "/icons/icon-192x192.png",
+      badge: "/icons/icon-192x192.png",
       data: { url: data.url || "/app" },
     })
   );
@@ -133,13 +181,16 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || "/app";
+  const targetUrl = event.notification.data?.url || "/app";
+
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      // Si ya hay una ventana, enfocarla
       for (const w of wins) {
-        if (w.url.includes(url) && "focus" in w) return w.focus();
+        if (w.url.includes(targetUrl) && "focus" in w) return w.focus();
       }
-      if (clients.openWindow) return clients.openWindow(url);
+      // Si no, abrir una nueva
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });

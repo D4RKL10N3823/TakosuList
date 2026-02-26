@@ -19,22 +19,9 @@ export default function Settings() {
     setMsg("");
     try {
       await subscribeToPush(api);
-      showMsg("✅ Web Push habilitado: suscripción guardada en el servidor.");
+      showMsg("✅ Notificaciones activadas.");
     } catch (e) {
-      showMsg(`❌ ${e?.message || "Error al habilitar Web Push."}`);
-    } finally {
-      setLoading("");
-    }
-  };
-
-  const test = async () => {
-    setLoading("test");
-    setMsg("");
-    try {
-      const { data } = await api.post("/api/push/test");
-      showMsg(`✅ Push enviado. sent=${data.result.sent}, failed=${data.result.failed}`);
-    } catch {
-      showMsg("❌ Error al enviar push de prueba.");
+      showMsg(`❌ ${e?.message || "Error al activar notificaciones."}`);
     } finally {
       setLoading("");
     }
@@ -53,11 +40,11 @@ export default function Settings() {
         {/* Web Push card */}
         <Card>
           <CardHeader>
-            <CardTitle>🔔 Notificaciones Push</CardTitle>
+            <CardTitle>Notificaciones</CardTitle>
           </CardHeader>
           <p className="text-sm text-[var(--color-muted)] mb-5 leading-relaxed">
             Activa las notificaciones para recibir alertas cuando alguien responda
-            a tus comentarios o haya novedades en tus animes favoritos.
+            a tus comentarios.
           </p>
 
           <div className="flex flex-wrap gap-3">
@@ -67,7 +54,7 @@ export default function Settings() {
               disabled={loading === "push"}
               className="flex-1"
             >
-              {loading === "push" ? "Activando…" : "Activar Web Push"}
+              {loading === "push" ? "Activando…" : "Activar notificaciones"}
             </Button>
 
             <Button
@@ -76,7 +63,7 @@ export default function Settings() {
               disabled={loading === "test"}
               className="flex-1"
             >
-              {loading === "test" ? "Enviando…" : "Enviar push de prueba"}
+              {loading === "test" ? "Enviando…" : "Enviar notificación de prueba"}
             </Button>
           </div>
         </Card>

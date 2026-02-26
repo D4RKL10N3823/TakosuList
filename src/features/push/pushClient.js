@@ -1,3 +1,5 @@
+import { registerSW } from "../../registerSW";
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -13,16 +15,17 @@ function waitForActivation(registration) {
     const sw = registration.installing || registration.waiting || registration.active;
     if (!sw) return reject(new Error("No se encontró Service Worker"));
 
-    if (sw.state === "activated") {
-      return resolve(registration);
-    }
+    if (sw.state === "activated") return resolve(registration);
 
-    // Forzar activación inmediata si está en waiting
+    // Forzar activación inmediata si está en waiting (requiere handler en sw.js)
     if (registration.waiting) {
       registration.waiting.postMessage({ type: "SKIP_WAITING" });
     }
 
-    const timeout = setTimeout(() => reject(new Error("Tiempo de espera agotado al activar el Service Worker")), 10000);
+    const timeout = setTimeout(
+      () => reject(new Error("Tiempo de espera agotado al activar el Service Worker")),
+      10000
+    );
 
     sw.addEventListener("statechange", function handler(e) {
       if (e.target.state === "activated") {
@@ -38,8 +41,21 @@ function waitForActivation(registration) {
   });
 }
 
+export async function getSWRegistration() {
+  if (!("serviceWorker" in navigator)) return null;
+
+  // Si ya existe, úsalo
+  const existing = await navigator.serviceWorker.getRegistration("/");
+  if (existing) return existing;
+
+  // Si no existe, regístralo (registerSW debe evitar DEV)
+  return await registerSW();
+}
+
 export async function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) throw new Error("Service Worker no soportado en este navegador");
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Service Worker no soportado en este navegador");
+  }
 
   // Si ya hay uno registrado, úsalo directamente
   const existing = await navigator.serviceWorker.getRegistration("/");
@@ -47,7 +63,10 @@ export async function registerServiceWorker() {
     return waitForActivation(existing);
   }
 
-  const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  // Si no hay, registra y espera activación
+  const registration = await getSWRegistration();
+  if (!registration) throw new Error("No Service Worker registration available");
+
   return waitForActivation(registration);
 }
 
@@ -59,30 +78,25 @@ function withTimeout(promise, ms, label) {
 }
 
 export async function subscribeToPush(apiClient) {
-  // 1. Solicitar permiso
-  console.log("[Push] Solicitando permiso...");
+  // 1) Solicitar permiso
   const perm = await Notification.requestPermission();
   if (perm !== "granted") throw new Error(`Permiso de notificaciones: ${perm}`);
-  console.log("[Push] Permiso concedido");
 
-  // 2. Registrar / esperar SW activo
-  console.log("[Push] Registrando Service Worker...");
+  // 2) Asegurar SW activo
   const reg = await withTimeout(registerServiceWorker(), 8000, "SW activation");
-  console.log("[Push] SW activo:", reg);
+  if (!reg) throw new Error("No se obtuvo registration del Service Worker");
 
-  // 3. Obtener clave VAPID pública del backend
-  console.log("[Push] Obteniendo clave VAPID...");
+  // 3) Obtener clave VAPID pública del backend
   const { data } = await withTimeout(
     apiClient.get("/api/push/vapidPublicKey"),
     5000,
     "GET /api/push/vapidPublicKey"
   );
-  const publicKey = data.publicKey;
-  if (!publicKey) throw new Error("El servidor no devolvió la clave VAPID");
-  console.log("[Push] Clave VAPID:", publicKey.slice(0, 20) + "...");
 
-  // 4. Suscribir al servicio push (puede tardar — red externa)
-  console.log("[Push] Suscribiendo a push service...");
+  const publicKey = data?.publicKey;
+  if (!publicKey) throw new Error("El servidor no devolvió la clave VAPID");
+
+  // 4) Suscribir al servicio push
   const sub = await withTimeout(
     reg.pushManager.subscribe({
       userVisibleOnly: true,
@@ -91,15 +105,10 @@ export async function subscribeToPush(apiClient) {
     15000,
     "pushManager.subscribe"
   );
-  console.log("[Push] Suscripción creada:", sub.endpoint.slice(0, 40) + "...");
 
-  // 5. Guardar suscripción en el servidor
-  console.log("[Push] Guardando suscripción en servidor...");
-  await withTimeout(
-    apiClient.post("/api/push/subscribe", sub),
-    5000,
-    "POST /api/push/subscribe"
-  );
+  // 5) Guardar suscripción en el servidor
+  await withTimeout(apiClient.post("/api/push/subscribe", sub), 5000, "POST /api/push/subscribe");
+
   console.log("[Push] ¡Suscripción guardada!");
   return sub;
 }
