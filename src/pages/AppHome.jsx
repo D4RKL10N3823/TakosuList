@@ -77,7 +77,6 @@ export default function AppHome() {
 
       {filtered.length === 0 ? (
         <div className="text-center py-20 text-[var(--color-muted)]">
-          <div className="text-5xl mb-4">🔎</div>
           <p className="font-semibold">No hay resultados</p>
           <p className="text-sm mt-1">Prueba con otro título.</p>
         </div>
@@ -87,23 +86,36 @@ export default function AppHome() {
             <Link
               key={a._id}
               to={`/app/anime/${a._id}`}
-              className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-purple-500/40 transition-all"
+              className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-purple-500/40 transition-all group flex flex-col gap-3"
             >
-              <div className="font-black text-white">{a.title}</div>
-              {a.genres?.length ? (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {a.genres.slice(0, 3).map((g) => (
-                    <span
-                      key={g}
-                      className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/20"
-                    >
-                      {g}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-xs text-[var(--color-muted)] mt-2">Sin géneros</div>
-              )}
+              <div className="w-full h-48 rounded-xl overflow-hidden bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-[var(--color-border)] flex-shrink-0">
+                {a.coverUrl ? (
+                  <img
+                    src={a.coverUrl}
+                    alt={a.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-5xl opacity-30">🐙</div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-black text-white truncate">{a.title}</div>
+                {a.genres?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {a.genres.slice(0, 3).map((g) => (
+                      <span
+                        key={g}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/20"
+                      >
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-[var(--color-muted)] mt-2">Sin géneros</div>
+                )}
+              </div>
             </Link>
           ))}
         </div>
