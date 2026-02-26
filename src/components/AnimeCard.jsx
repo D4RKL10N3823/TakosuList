@@ -17,7 +17,7 @@ export default function AnimeCard({ anime }) {
           <img
             src={anime.coverUrl}
             alt={anime.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+            className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500 ease-out"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
