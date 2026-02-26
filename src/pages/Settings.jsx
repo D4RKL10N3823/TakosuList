@@ -56,15 +56,6 @@ export default function Settings() {
             >
               {loading === "push" ? "Activando…" : "Activar notificaciones"}
             </Button>
-
-            <Button
-              variant="ghost"
-              onClick={test}
-              disabled={loading === "test"}
-              className="flex-1"
-            >
-              {loading === "test" ? "Enviando…" : "Enviar notificación de prueba"}
-            </Button>
           </div>
         </Card>
 
