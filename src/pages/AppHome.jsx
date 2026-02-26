@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import AnimeCard from "../components/AnimeCard";
 import api from "../services/api";
 import PageHeader from "../components/ui/PageHeader";
 import { cacheAnimes, getCachedAnimes } from "../offline/cache";
@@ -83,40 +83,7 @@ export default function AppHome() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((a) => (
-            <Link
-              key={a._id}
-              to={`/app/anime/${a._id}`}
-              className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-purple-500/40 transition-all group flex flex-col gap-3"
-            >
-              <div className="w-full h-48 rounded-xl overflow-hidden bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-[var(--color-border)] flex-shrink-0">
-                {a.coverUrl ? (
-                  <img
-                    src={a.coverUrl}
-                    alt={a.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-5xl opacity-30">🐙</div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-black text-white truncate">{a.title}</div>
-                {a.genres?.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {a.genres.slice(0, 3).map((g) => (
-                      <span
-                        key={g}
-                        className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-200 border border-purple-500/20"
-                      >
-                        {g}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-[var(--color-muted)] mt-2">Sin géneros</div>
-                )}
-              </div>
-            </Link>
+            <AnimeCard key={a._id} anime={a} />
           ))}
         </div>
       )}
