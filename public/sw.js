@@ -68,16 +68,26 @@ self.addEventListener("fetch", (event) => {
   }
 
   // 2. Estrategia para el HTML (Network-first para asegurar frescura)
-  if (request.headers.get("accept")?.includes("text/html")) {
-    event.respondWith(
-      fetch(request)
-        .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(request, clone));
-          return res;
-        })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
-    );
+  if (request.mode === "navigate") {
+    event.respondWith((async () => {
+      try {
+        const res = await fetch(request);
+
+        // Si Vercel responde 404 para /app/*, devolvemos el shell (/)
+        if (!res.ok) {
+          const shell = await fetch("/");
+          return shell;
+        }
+
+        // Solo cachear si es OK
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then((c) => c.put(request, clone));
+        return res;
+      } catch {
+        // Offline: devolver shell desde cache
+        return (await caches.match("/")) || new Response("Offline", { status: 200, headers: { "Content-Type": "text/html" } });
+      }
+    })());
     return;
   }
 
